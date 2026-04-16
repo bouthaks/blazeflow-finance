@@ -1,8 +1,8 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 const INITIAL_BF = [
-  { id: 1, label: "Acompte Phase 1 — Greenwood", montant: 18000, type: "entrée", cat: "Projet", statut: "encaissé", date: "2026-03-01" },
-  { id: 2, label: "Design graphique — Greenwood", montant: 2000, type: "entrée", cat: "Projet", statut: "encaissé", date: "2026-03-15" },
+  { id: 1, label: "Acompte Phase 1 — Greenwood Residences", montant: 18000, type: "entrée", cat: "Projet", statut: "encaissé", date: "2026-03-01" },
+  { id: 2, label: "Design graphique — Flyer + Oriflamme Greenwood", montant: 2000, type: "entrée", cat: "Projet", statut: "encaissé", date: "2026-03-15" },
   { id: 3, label: "Facture Greenwood — Presta + Pub", montant: 7500, type: "entrée", cat: "Projet", statut: "en attente", date: "2026-04-15" },
   { id: 4, label: "Acompte 50% — Twelve Stays", montant: 37500, type: "entrée", cat: "Projet", statut: "en attente", date: "2026-04-20" },
   { id: 5, label: "Acompte 50% — Choukrallah", montant: 9000, type: "entrée", cat: "Projet", statut: "en attente", date: "2026-04-30" },
@@ -20,13 +20,23 @@ const INITIAL_PERSO = [
 const CATS_BF = ["Projet", "Abonnement", "Fiscal", "Marketing", "Autre"];
 const CATS_PERSO = ["Personnel", "Voyage", "Logement", "Épargne", "Investissement", "Autre"];
 
-const fmt = (n) => new Intl.NumberFormat("fr-MA", { minimumFractionDigits: 0 }).format(Math.abs(n)) + " DH";
+const fmt = (n) => new Intl.NumberFormat("fr-MA", { minimumFractionDigits: 0 }).format(Math.abs(Math.round(n))) + " DH";
+
+function useLocalStorage(key, initial) {
+  const [val, setVal] = useState(() => {
+    try {
+      const stored = localStorage.getItem(key);
+      return stored ? JSON.parse(stored) : initial;
+    } catch { return initial; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+  }, [key, val]);
+  return [val, setVal];
+}
 
 const StatCard = ({ label, value, sub, color }) => (
-  <div style={{
-    background: "rgba(255,255,255,0.04)", border: `1px solid ${color}30`,
-    borderRadius: 12, padding: "16px 20px", borderTop: `3px solid ${color}`
-  }}>
+  <div style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${color}30`, borderRadius: 12, padding: "16px 20px", borderTop: `3px solid ${color}` }}>
     <div style={{ fontSize: 10, color: "#888", letterSpacing: 2, textTransform: "uppercase", fontFamily: "DM Mono, monospace", marginBottom: 6 }}>{label}</div>
     <div style={{ fontSize: 22, fontWeight: 800, color, fontFamily: "DM Mono, monospace", letterSpacing: -1 }}>{value}</div>
     {sub && <div style={{ fontSize: 11, color: "#666", marginTop: 4, fontFamily: "DM Mono, monospace" }}>{sub}</div>}
@@ -50,6 +60,8 @@ const ProgressBar = ({ value, max, color }) => {
 function Section({ title, color, emoji, data, setData, cats, charges }) {
   const [form, setForm] = useState({ label: "", montant: "", type: "entrée", cat: cats[0], statut: "en attente", date: new Date().toISOString().split("T")[0] });
   const [tab, setTab] = useState("tout");
+  const [editId, setEditId] = useState(null);
+  const [editVal, setEditVal] = useState("");
 
   const encaissé = data.filter(t => t.type === "entrée" && t.statut === "encaissé").reduce((s, t) => s + t.montant, 0);
   const attendu = data.filter(t => t.type === "entrée" && t.statut === "en attente").reduce((s, t) => s + t.montant, 0);
@@ -64,14 +76,26 @@ function Section({ title, color, emoji, data, setData, cats, charges }) {
   };
 
   const remove = (id) => setData(prev => prev.filter(t => t.id !== id));
-  const toggle = (id) => setData(prev => prev.map(t => t.id === id ? { ...t, statut: t.statut === "encaissé" ? "en attente" : t.statut === "payé" ? "en attente" : "encaissé" } : t));
+  const toggle = (id) => setData(prev => prev.map(t => t.id === id ? {
+    ...t, statut: t.type === "entrée"
+      ? (t.statut === "encaissé" ? "en attente" : "encaissé")
+      : (t.statut === "payé" ? "en attente" : "payé")
+  } : t));
+
+  const startEdit = (t) => { setEditId(t.id); setEditVal(Math.abs(t.montant).toString()); };
+  const saveEdit = (id, type) => {
+    const m = type === "dépense" ? -Math.abs(parseFloat(editVal)) : Math.abs(parseFloat(editVal));
+    setData(prev => prev.map(t => t.id === id ? { ...t, montant: m } : t));
+    setEditId(null);
+  };
 
   const filtered = tab === "tout" ? data : tab === "entrées" ? data.filter(t => t.type === "entrée") : data.filter(t => t.type === "dépense");
 
   const statusEvolution = () => {
-    if (balance > 5000) return { label: "En croissance 📈", color: "#1db954" };
-    if (balance > 0) return { label: "Stable ⚖️", color: "#c9a84c" };
-    return { label: "Déficit ⚠️", color: "#e85d5d" };
+    if (balance > 20000) return { label: "En forte croissance 🚀", color: "#1db954" };
+    if (balance > 5000) return { label: "En évolution 📈", color: "#4a9eff" };
+    if (balance > 0) return { label: "Point mort stable ⚖️", color: "#c9a84c" };
+    return { label: "Déficit — action requise ⚠️", color: "#e85d5d" };
   };
   const evo = statusEvolution();
 
@@ -90,7 +114,6 @@ function Section({ title, color, emoji, data, setData, cats, charges }) {
 
       {charges > 0 && <ProgressBar value={encaissé} max={charges} color={color} />}
 
-      {/* Formulaire ajout */}
       <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 10, padding: 16, marginBottom: 16, marginTop: 16 }}>
         <div style={{ fontSize: 11, color: "#888", letterSpacing: 1, textTransform: "uppercase", fontFamily: "DM Mono, monospace", marginBottom: 12 }}>Ajouter une transaction</div>
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
@@ -121,7 +144,6 @@ function Section({ title, color, emoji, data, setData, cats, charges }) {
         </div>
       </div>
 
-      {/* Tabs */}
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         {["tout", "entrées", "dépenses"].map(t => (
           <button key={t} onClick={() => setTab(t)} style={{
@@ -132,27 +154,38 @@ function Section({ title, color, emoji, data, setData, cats, charges }) {
         ))}
       </div>
 
-      {/* Liste transactions */}
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {filtered.map(t => (
           <div key={t.id} style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
             padding: "10px 14px", background: "rgba(255,255,255,0.03)", borderRadius: 8,
-            border: "1px solid rgba(255,255,255,0.06)", transition: "all 0.2s"
+            border: "1px solid rgba(255,255,255,0.06)"
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: t.statut === "encaissé" || t.statut === "payé" ? "#1db954" : "#c9a84c", flexShrink: 0 }} />
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: (t.statut === "encaissé" || t.statut === "payé") ? "#1db954" : "#c9a84c", flexShrink: 0 }} />
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>{t.label}</div>
-                <div style={{ fontSize: 10, color: "#666", fontFamily: "DM Mono, monospace", marginTop: 2 }}>{t.cat} · {t.date} · <span style={{ color: t.statut === "encaissé" || t.statut === "payé" ? "#1db954" : "#c9a84c" }}>{t.statut}</span></div>
+                <div style={{ fontSize: 10, color: "#666", fontFamily: "DM Mono, monospace", marginTop: 2 }}>
+                  {t.cat} · {t.date} · <span style={{ color: (t.statut === "encaissé" || t.statut === "payé") ? "#1db954" : "#c9a84c" }}>{t.statut}</span>
+                </div>
               </div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "DM Mono, monospace", color: t.montant >= 0 ? "#1db954" : "#e85d5d" }}>
-                {t.montant >= 0 ? "+" : "-"}{fmt(t.montant)}
-              </div>
-              <button onClick={() => toggle(t.id)} style={{ background: "rgba(255,255,255,0.06)", border: "none", borderRadius: 4, padding: "3px 8px", color: "#888", fontSize: 10, cursor: "pointer" }}>✓</button>
-              <button onClick={() => remove(t.id)} style={{ background: "rgba(232,93,93,0.1)", border: "none", borderRadius: 4, padding: "3px 8px", color: "#e85d5d", fontSize: 10, cursor: "pointer" }}>×</button>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {editId === t.id ? (
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input type="number" value={editVal} onChange={e => setEditVal(e.target.value)}
+                    style={{ width: 90, background: "rgba(255,255,255,0.1)", border: `1px solid ${color}`, borderRadius: 6, padding: "4px 8px", color: "#f0ede6", fontSize: 13, fontFamily: "DM Mono, monospace" }} />
+                  <button onClick={() => saveEdit(t.id, t.type)} style={{ background: color, border: "none", borderRadius: 6, padding: "4px 10px", color: "#000", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>✓</button>
+                  <button onClick={() => setEditId(null)} style={{ background: "rgba(255,255,255,0.06)", border: "none", borderRadius: 6, padding: "4px 8px", color: "#888", fontSize: 11, cursor: "pointer" }}>✕</button>
+                </div>
+              ) : (
+                <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "DM Mono, monospace", color: t.montant >= 0 ? "#1db954" : "#e85d5d", cursor: "pointer" }}
+                  onClick={() => startEdit(t)}>
+                  {t.montant >= 0 ? "+" : "-"}{fmt(t.montant)}
+                </div>
+              )}
+              <button onClick={() => toggle(t.id)} title="Changer statut" style={{ background: "rgba(255,255,255,0.06)", border: "none", borderRadius: 4, padding: "3px 8px", color: "#888", fontSize: 10, cursor: "pointer" }}>✓</button>
+              <button onClick={() => remove(t.id)} title="Supprimer" style={{ background: "rgba(232,93,93,0.1)", border: "none", borderRadius: 4, padding: "3px 8px", color: "#e85d5d", fontSize: 10, cursor: "pointer" }}>×</button>
             </div>
           </div>
         ))}
@@ -162,18 +195,16 @@ function Section({ title, color, emoji, data, setData, cats, charges }) {
 }
 
 export default function FinanceDashboard() {
-  const [bf, setBf] = useState(INITIAL_BF);
-  const [perso, setPerso] = useState(INITIAL_PERSO);
-  const [epargne, setEpargne] = useState(0);
-  const [investissement, setInvestissement] = useState(0);
+  const [bf, setBf] = useLocalStorage("bf_transactions", INITIAL_BF);
+  const [perso, setPerso] = useLocalStorage("perso_transactions", INITIAL_PERSO);
+  const [epargne, setEpargne] = useLocalStorage("epargne", 0);
+  const [investissement, setInvestissement] = useLocalStorage("investissement", 0);
+  const [caisse, setCaisse] = useLocalStorage("caisse", 4900);
 
   const totalBF = bf.filter(t => t.type === "entrée" && t.statut === "encaissé").reduce((s, t) => s + t.montant, 0)
     - bf.filter(t => t.type === "dépense").reduce((s, t) => s + Math.abs(t.montant), 0);
-
   const totalPerso = perso.filter(t => t.type === "dépense").reduce((s, t) => s + Math.abs(t.montant), 0);
   const totalAttendu = [...bf, ...perso].filter(t => t.type === "entrée" && t.statut === "en attente").reduce((s, t) => s + t.montant, 0);
-
-  const caisse = 4900;
   const netTotal = caisse + totalBF - totalPerso - epargne - investissement;
 
   const globalEvo = () => {
@@ -188,31 +219,33 @@ export default function FinanceDashboard() {
     <div style={{ background: "#0a0a0a", minHeight: "100vh", padding: 28, fontFamily: "Syne, sans-serif", color: "#f0ede6" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@300;400;500&display=swap'); input,select{outline:none;} input::placeholder{color:#555;} button:hover{opacity:0.85;}`}</style>
 
-      {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
         <div>
           <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: -1 }}>💰 BlazeFlow Finance</div>
-          <div style={{ fontSize: 11, color: "#666", fontFamily: "DM Mono, monospace", marginTop: 3 }}>Tableau de bord financier — Bouthaina</div>
+          <div style={{ fontSize: 11, color: "#666", fontFamily: "DM Mono, monospace", marginTop: 3 }}>Dashboard financier — Bouthaina · données sauvegardées</div>
         </div>
         <div style={{ padding: "6px 16px", borderRadius: 20, background: `${evo.color}15`, color: evo.color, border: `1px solid ${evo.color}30`, fontSize: 12, fontWeight: 600 }}>{evo.label}</div>
       </div>
 
-      {/* Métriques globales */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }}>
-        <StatCard label="Caisse actuelle" value={fmt(caisse)} color="#c9a84c" sub="Disponible maintenant" />
-        <StatCard label="Revenus BF nets" value={(totalBF >= 0 ? "+" : "") + fmt(totalBF)} color="#1db954" sub="Projets encaissés" />
+        <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(201,168,76,0.3)", borderRadius: 12, padding: "16px 20px", borderTop: "3px solid #c9a84c" }}>
+          <div style={{ fontSize: 10, color: "#888", letterSpacing: 2, textTransform: "uppercase", fontFamily: "DM Mono, monospace", marginBottom: 6 }}>Caisse actuelle</div>
+          <input type="number" value={caisse} onChange={e => setCaisse(+e.target.value)}
+            style={{ width: "100%", background: "transparent", border: "none", color: "#c9a84c", fontSize: 22, fontWeight: 800, fontFamily: "DM Mono, monospace", letterSpacing: -1, padding: 0 }} />
+          <div style={{ fontSize: 11, color: "#666", fontFamily: "DM Mono, monospace" }}>Modifiable</div>
+        </div>
+        <StatCard label="Revenus BF nets" value={(totalBF >= 0 ? "+" : "-") + fmt(totalBF)} color="#1db954" sub="Projets encaissés" />
         <StatCard label="À encaisser" value={"+" + fmt(totalAttendu)} color="#4a9eff" sub="Deals en attente" />
         <StatCard label="Net disponible" value={(netTotal >= 0 ? "+" : "-") + fmt(netTotal)} color={netTotal >= 0 ? "#c9a84c" : "#e85d5d"} sub="Après tout" />
       </div>
 
-      {/* Épargne & Investissement */}
       <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: 20, marginBottom: 24 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>🏦 Épargne & Investissements</div>
+        <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 14 }}>🏦 Épargne & Investissements</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           <div>
             <div style={{ fontSize: 11, color: "#888", fontFamily: "DM Mono, monospace", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>Épargne mise de côté</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input type="number" value={epargne} onChange={e => setEpargne(+e.target.value)} placeholder="0 DH"
+              <input type="number" value={epargne} onChange={e => setEpargne(+e.target.value)} placeholder="0"
                 style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(74,158,255,0.3)", borderRadius: 8, padding: "10px 14px", color: "#4a9eff", fontSize: 14, fontFamily: "DM Mono, monospace" }} />
               <div style={{ fontSize: 11, color: "#4a9eff", fontFamily: "DM Mono, monospace" }}>DH</div>
             </div>
@@ -220,7 +253,7 @@ export default function FinanceDashboard() {
           <div>
             <div style={{ fontSize: 11, color: "#888", fontFamily: "DM Mono, monospace", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>Investissements</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input type="number" value={investissement} onChange={e => setInvestissement(+e.target.value)} placeholder="0 DH"
+              <input type="number" value={investissement} onChange={e => setInvestissement(+e.target.value)} placeholder="0"
                 style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(155,127,232,0.3)", borderRadius: 8, padding: "10px 14px", color: "#9b7fe8", fontSize: 14, fontFamily: "DM Mono, monospace" }} />
               <div style={{ fontSize: 11, color: "#9b7fe8", fontFamily: "DM Mono, monospace" }}>DH</div>
             </div>
@@ -238,7 +271,6 @@ export default function FinanceDashboard() {
         </div>
       </div>
 
-      {/* Sections */}
       <Section title="Trésorerie BlazeFlow" color="#c9a84c" emoji="🔥" data={bf} setData={setBf} cats={CATS_BF} charges={27500} />
       <Section title="Finance Personnelle" color="#4a9eff" emoji="🌸" data={perso} setData={setPerso} cats={CATS_PERSO} charges={9170} />
     </div>
